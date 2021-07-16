@@ -47,35 +47,36 @@ IPFS.create({
 
   app.get('/raw/:cid', async (req, res) => {
     const cid = new IPFS.CID(req.params.cid)
-    // const stats = await ipfs.files.stat(cid)
-    // let range = req.range(stats.size)
+    const stats = await ipfs.files.stat(cid)
+    let range = req.range(stats.size)
 
-    // if (range === undefined) {
-    //   range = [{ start: 0, end: stats.size - 1 }]
-    //   range.type = 'bytes'
-    //   range.isFull = true
-    // }
-
-    // if (range < 0) return res.sendStatus(400)
-    // if (range.type !== 'bytes') return res.sendStatus(400)
-
-    // const [{ start, end }] = range
-
-    // res.status(range.isFull ? 200 : 206)
-    // // TODO: Content type
-    // res.setHeader('Content-Length', stats.size)
-    // res.setHeader('Accept-Ranges', 'bytes')
-    // res.setHeader('Content-Range', `bytes ${start}-${end}/${stats.size}`)
-
-    if (req.query.filename) {
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(req.query.filename)}`)
+    if (range === undefined) {
+      range = [{ start: 0, end: stats.size - 1 }]
+      range.type = 'bytes'
+      range.isFull = true
     }
 
-    for await (const chunk of ipfs.files.read(cid/*, { start, end }*/)) {
+    if (range < 0) return res.sendStatus(400)
+    if (range.type !== 'bytes') return res.sendStatus(400)
+
+    const [{ start, end }] = range
+    const length = end - start + 1
+
+    res.status(range.isFull ? 200 : 206)
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${stats.size}`)
+    res.setHeader('Content-Length', length)
+    res.setHeader('Content-Type', 'application/octet-stream') // TODO: Content type
+
+    if (req.query.filename) {
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(req.query.filename ?? req.params.cid)}`)
+    }
+
+    for await (const chunk of ipfs.files.read(cid, { offset: start, length })) {
       res.write(chunk)
     }
 
-    res.once('drain', () => res.end())
+    res.end()
   })
 
   app.get('/dir/:path', async (req, res) => {
@@ -105,7 +106,9 @@ IPFS.create({
     res.send(200)
   })
 
-  app.all('*', (_, res) => res.sendStatus(404))
+  app.all('*', (_, res) => {
+    res.sendStatus(404)
+  })
 
   app.listen(PORT, () => {
     console.info(`http://localhost:${PORT}`)
